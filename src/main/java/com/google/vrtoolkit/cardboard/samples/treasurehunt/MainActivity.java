@@ -276,9 +276,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     floorColors.put(WorldLayoutData.FLOOR_COLORS);
     floorColors.position(0);
 
-    int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
     int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
-    int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
+
 
     cubeProgram = GLES20.glCreateProgram();
     GLES20.glAttachShader(cubeProgram, vertexShader);

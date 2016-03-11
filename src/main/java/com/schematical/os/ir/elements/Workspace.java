@@ -71,6 +71,7 @@ public class Workspace {
         vertexBuffer.position(0);
 
         cubeProgram = GLES20.glCreateProgram();
+        int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
         GLES20.glAttachShader(cubeProgram, vertexShader);
         GLES20.glAttachShader(cubeProgram, passthroughShader);
         GLES20.glLinkProgram(cubeProgram);
