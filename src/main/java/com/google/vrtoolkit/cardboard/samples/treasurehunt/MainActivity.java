@@ -64,8 +64,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   // We keep the light always position just above the user.
   private static final float[] LIGHT_POS_IN_WORLD_SPACE = new float[] {0.0f, 2.0f, 0.0f, 1.0f};
 
-  private static final float MIN_MODEL_DISTANCE = 3.0f;
-  private static final float MAX_MODEL_DISTANCE = 7.0f;
+
 
 
   private final float[] lightPosInEyeSpace = new float[4];
@@ -94,8 +93,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private float[] modelView;
   private float[] modelFloor;
 
-  private float[] modelPosition;
   private float[] headRotation;
+
+  private static final float MIN_MODEL_DISTANCE = 3.0f;
+  private static final float MAX_MODEL_DISTANCE = 7.0f;
 
   private int score = 0;
   private float objectDistance = MAX_MODEL_DISTANCE / 2.0f;
@@ -173,7 +174,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     modelView = new float[16];
     modelFloor = new float[16];
     // Model first appears directly in front of user.
-    modelPosition = new float[] {0.0f, 0.0f, -MAX_MODEL_DISTANCE / 2.0f};
+
     headRotation = new float[4];
     headView = new float[16];
     vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -243,14 +244,19 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     floorColors.put(WorldLayoutData.FLOOR_COLORS);
     floorColors.position(0);
 
-    int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
-    int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
-    int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
 
-    workspace = new Workspace(getCardboardView(), vertexShader, gridShader);
 
+    workspace = new Workspace(getCardboardView());
+    workspace.setPosition(new  float[]{0.0f, 0.0f, -MAX_MODEL_DISTANCE / 2.0f});
+    //workspace.randomizePosition(objectDistance);
 
     checkGLError("Cube program params");
+
+
+    int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
+    int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
+
+
 
     floorProgram = GLES20.glCreateProgram();
     GLES20.glAttachShader(floorProgram, vertexShader);
@@ -279,20 +285,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     Matrix.translateM(modelFloor, 0, 0, -floorDepth, 0); // Floor appears below user.
 
 
-    updateModelPosition();
 
     checkGLError("onSurfaceCreated");
   }
 
-  /**
-   * Updates the cube model position.
-   */
-  private void updateModelPosition() {
-    Matrix.setIdentityM(modelCube, 0);
-    Matrix.translateM(modelCube, 0, modelPosition[0], modelPosition[1], modelPosition[2]);
 
-    checkGLError("updateCubePosition");
-  }
 
   /**
    * Converts a raw text file into a string.
@@ -325,7 +322,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   @Override
   public void onNewFrame(HeadTransform headTransform) {
     // Build the Model part of the ModelView matrix.
-    //Matrix.rotateM(modelCube, 0, TIME_DELTA, 0.5f, 0.5f, 1.0f);
+    workspace.onNewFrame(headTransform);
 
     // Build the camera matrix and apply it to the ModelView.
     Matrix.setLookAtM(camera, 0, 0.0f, 0.0f, CAMERA_Z, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
@@ -366,6 +363,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     // Set modelView for the floor, so we draw floor in the correct location
     Matrix.multiplyMM(modelView, 0, view, 0, modelFloor, 0);
     Matrix.multiplyMM(modelViewProjection, 0, perspective, 0, modelView, 0);
+
     drawFloor();
   }
 
@@ -447,29 +445,9 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
    * <p>We'll rotate it around the Y-axis so it's out of sight, and then up or down by a little bit.
    */
   private void hideObject() {
-    float[] rotationMatrix = new float[16];
-    float[] posVec = new float[4];
 
-    // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
-    // the object's distance from the user.
-    float angleXZ = (float) Math.random() * 180 + 90;
-    Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
-    float oldObjectDistance = objectDistance;
-    objectDistance =
-        (float) Math.random() * (MAX_MODEL_DISTANCE - MIN_MODEL_DISTANCE) + MIN_MODEL_DISTANCE;
-    float objectScalingFactor = objectDistance / oldObjectDistance;
-    Matrix.scaleM(rotationMatrix, 0, objectScalingFactor, objectScalingFactor, objectScalingFactor);
-    Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, modelCube, 12);
 
-    float angleY = (float) Math.random() * 80 - 40; // Angle in Y plane, between -40 and 40.
-    angleY = (float) Math.toRadians(angleY);
-    float newY = (float) Math.tan(angleY) * objectDistance;
 
-    modelPosition[0] = posVec[0];
-    modelPosition[1] = newY;
-    modelPosition[2] = posVec[2];
-
-    updateModelPosition();
   }
 
   /**
@@ -478,7 +456,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
    * @return true if the user is looking at the object.
    */
   private boolean isLookingAtObject() {
-    float[] initVec = {0, 0, 0, 1.0f};
+    return false;
+   /* float[] initVec = {0, 0, 0, 1.0f};
     float[] objPositionVec = new float[4];
 
     // Convert object space to camera space. Use the headView from onNewFrame.
@@ -488,6 +467,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     float pitch = (float) Math.atan2(objPositionVec[1], -objPositionVec[2]);
     float yaw = (float) Math.atan2(objPositionVec[0], -objPositionVec[2]);
 
-    return Math.abs(pitch) < PITCH_LIMIT && Math.abs(yaw) < YAW_LIMIT;
+    return Math.abs(pitch) < PITCH_LIMIT && Math.abs(yaw) < YAW_LIMIT;*/
   }
 }

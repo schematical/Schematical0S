@@ -6,6 +6,8 @@ import android.util.Log;
 
 import com.google.vrtoolkit.cardboard.CardboardActivity;
 import com.google.vrtoolkit.cardboard.CardboardView;
+import com.google.vrtoolkit.cardboard.HeadTransform;
+import com.google.vrtoolkit.cardboard.samples.treasurehunt.R;
 import com.google.vrtoolkit.cardboard.samples.treasurehunt.WorldLayoutData;
 
 import java.io.BufferedReader;
@@ -21,9 +23,13 @@ import java.nio.FloatBuffer;
  * Created by user1a on 3/11/16.
  */
 public class Workspace extends BaseDrawable{
+
+
+
     private CardboardView view;
     private int program;
     private FloatBuffer fbVertices;
+    private float[] modelPosition;
     private int positionParam;
     private int normalParam;
     private int colorParam;
@@ -35,9 +41,10 @@ public class Workspace extends BaseDrawable{
     private float[] model;
     private FloatBuffer fbColors;
     private FloatBuffer fbNormals;
+
     private static final int COORDS_PER_VERTEX = 3;
 
-    private float verticies[]  = new float[]{
+    /*private float verticies[]  = new float[]{
             // Front face
             -1.0f, 1.0f, 1.0f,
             -1.0f, -1.0f, 1.0f,
@@ -46,15 +53,16 @@ public class Workspace extends BaseDrawable{
             1.0f, -1.0f, 1.0f,
             1.0f, 1.0f, 1.0f,
     };
-    private float color[]  = new float[]{
+     private float color[]  = new float[]{
           0.0f, 0.6f, 1.0f, 1.0f
-    };
-    public Workspace(CardboardView nCardboardView, int vertexShader, int passthroughShader){
+    };*/
+    public Workspace(CardboardView nCardboardView){
+
         view = nCardboardView;
         ByteBuffer bbVertices = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COORDS.length * 4);
         bbVertices.order(ByteOrder.nativeOrder());
         fbVertices = bbVertices.asFloatBuffer();
-        fbVertices.put(verticies);
+        fbVertices.put(WorldLayoutData.CUBE_COORDS);
         fbVertices.position(0);
         model = new float[16];
         program = GLES20.glCreateProgram();
@@ -70,6 +78,9 @@ public class Workspace extends BaseDrawable{
         fbNormals = bbNormals.asFloatBuffer();
         fbNormals.put(WorldLayoutData.CUBE_NORMALS);
         fbNormals.position(0);
+
+        int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
+        int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
 
         GLES20.glAttachShader(program, vertexShader);
         GLES20.glAttachShader(program, passthroughShader);
@@ -106,6 +117,32 @@ public class Workspace extends BaseDrawable{
             e.printStackTrace();
         }
         return null;
+    }
+    public void setPosition(float[]nPosition){
+        modelPosition = nPosition;
+    }
+    public void randomizePosition(float objectDistance){
+        float[] rotationMatrix = new float[16];
+        float[] posVec = new float[4];
+
+        // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
+        // the object's distance from the user.
+        float angleXZ = (float) Math.random() * 180 + 90;
+        Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
+        float oldObjectDistance = objectDistance;
+        objectDistance =
+                (float) Math.random() * objectDistance;//(MAX_MODEL_DISTANCE - MIN_MODEL_DISTANCE) + MIN_MODEL_DISTANCE;
+        float objectScalingFactor = objectDistance / oldObjectDistance;
+        Matrix.scaleM(rotationMatrix, 0, objectScalingFactor, objectScalingFactor, objectScalingFactor);
+        Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, model, 12);
+
+        float angleY = (float) Math.random() * 80 - 40; // Angle in Y plane, between -40 and 40.
+        angleY = (float) Math.toRadians(angleY);
+        float newY = (float) Math.tan(angleY) * objectDistance;
+
+        modelPosition[0] = posVec[0];
+        modelPosition[1] = newY;
+        modelPosition[2] = posVec[2];
     }
     private int loadGLShader(int type, int resId) {
         String code = readRawTextFile(resId);
@@ -159,5 +196,12 @@ public class Workspace extends BaseDrawable{
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
 
+    }
+    public void onNewFrame(HeadTransform headTransform){
+        Matrix.rotateM(model, 0, /*TIME_DELTA*/ 0.3f, 0.5f, 0.5f, 1.0f);
+    }
+    public void updatePosition(float[] modelPosition){
+        Matrix.setIdentityM(model, 0);
+        Matrix.translateM(model, 0, modelPosition[0], modelPosition[1], modelPosition[2]);
     }
 }
