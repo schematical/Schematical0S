@@ -1,8 +1,11 @@
 package com.schematical.os.ir.elements;
 
 import android.opengl.GLES20;
+import android.opengl.Matrix;
 import android.util.Log;
 
+import com.google.vrtoolkit.cardboard.CardboardActivity;
+import com.google.vrtoolkit.cardboard.CardboardView;
 import com.google.vrtoolkit.cardboard.samples.treasurehunt.WorldLayoutData;
 
 import java.io.BufferedReader;
@@ -13,19 +16,26 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 
+
 /**
  * Created by user1a on 3/11/16.
  */
-public class Workspace {
-    private int cubeProgram;
-    private FloatBuffer vertexBuffer;
-    private int cubePositionParam;
-    private int cubeNormalParam;
-    private int cubeColorParam;
-    private int cubeModelParam;
-    private int cubeModelViewParam;
-    private int cubeModelViewProjectionParam;
-    private int cubeLightPosParam;
+public class Workspace extends BaseDrawable{
+    private CardboardView view;
+    private int program;
+    private FloatBuffer fbVertices;
+    private int positionParam;
+    private int normalParam;
+    private int colorParam;
+    private int modelParam;
+    private int modelViewParam;
+    private int modelViewProjectionParam;
+    private int lightPosParam;
+    private final float[] lightPosInEyeSpace = new float[4];
+    private float[] model;
+    private FloatBuffer fbColors;
+    private FloatBuffer fbNormals;
+    private static final int COORDS_PER_VERTEX = 3;
 
     private float verticies[]  = new float[]{
             // Front face
@@ -39,6 +49,64 @@ public class Workspace {
     private float color[]  = new float[]{
           0.0f, 0.6f, 1.0f, 1.0f
     };
+    public Workspace(CardboardView nCardboardView, int vertexShader, int passthroughShader){
+        view = nCardboardView;
+        ByteBuffer bbVertices = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COORDS.length * 4);
+        bbVertices.order(ByteOrder.nativeOrder());
+        fbVertices = bbVertices.asFloatBuffer();
+        fbVertices.put(verticies);
+        fbVertices.position(0);
+        model = new float[16];
+        program = GLES20.glCreateProgram();
+
+        ByteBuffer bbColors = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COLORS.length * 4);
+        bbColors.order(ByteOrder.nativeOrder());
+        fbColors = bbColors.asFloatBuffer();
+        fbColors.put(WorldLayoutData.CUBE_COLORS);
+        fbColors.position(0);
+
+        ByteBuffer bbNormals = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_NORMALS.length * 4);
+        bbNormals.order(ByteOrder.nativeOrder());
+        fbNormals = bbNormals.asFloatBuffer();
+        fbNormals.put(WorldLayoutData.CUBE_NORMALS);
+        fbNormals.position(0);
+
+        GLES20.glAttachShader(program, vertexShader);
+        GLES20.glAttachShader(program, passthroughShader);
+        GLES20.glLinkProgram(program);
+        GLES20.glUseProgram(program);
+
+
+
+        positionParam = GLES20.glGetAttribLocation(program, "a_Position");
+        normalParam = GLES20.glGetAttribLocation(program, "a_Normal");
+        colorParam = GLES20.glGetAttribLocation(program, "a_Color");
+
+        modelParam = GLES20.glGetUniformLocation(program, "u_Model");
+        modelViewParam = GLES20.glGetUniformLocation(program, "u_MVMatrix");
+        modelViewProjectionParam = GLES20.glGetUniformLocation(program, "u_MVP");
+        lightPosParam = GLES20.glGetUniformLocation(program, "u_LightPos");
+
+        GLES20.glEnableVertexAttribArray(positionParam);
+        GLES20.glEnableVertexAttribArray(normalParam);
+        GLES20.glEnableVertexAttribArray(colorParam);
+    }
+    private String readRawTextFile(int resId) {
+        InputStream inputStream = view.getContext().getResources().openRawResource(resId);
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            reader.close();
+            return sb.toString();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
     private int loadGLShader(int type, int resId) {
         String code = readRawTextFile(resId);
         int shader = GLES20.glCreateShader(type);
@@ -51,7 +119,7 @@ public class Workspace {
 
         // If the compilation failed, delete the shader.
         if (compileStatus[0] == 0) {
-            Log.e(TAG, "Error compiling shader: " + GLES20.glGetShaderInfoLog(shader));
+            Log.e("Workspace:", "Error compiling shader: " + GLES20.glGetShaderInfoLog(shader));
             GLES20.glDeleteShader(shader);
             shader = 0;
         }
@@ -63,55 +131,33 @@ public class Workspace {
         return shader;
     }
 
-    public Workspace(){
-        ByteBuffer bbVertices = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COORDS.length * 4);
-        bbVertices.order(ByteOrder.nativeOrder());
-        vertexBuffer = bbVertices.asFloatBuffer();
-        vertexBuffer.put(verticies);
-        vertexBuffer.position(0);
 
-        cubeProgram = GLES20.glCreateProgram();
-        int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
-        GLES20.glAttachShader(cubeProgram, vertexShader);
-        GLES20.glAttachShader(cubeProgram, passthroughShader);
-        GLES20.glLinkProgram(cubeProgram);
-        GLES20.glUseProgram(cubeProgram);
+    public void draw(float[]  perspective, float[] modelView, float[] modelViewProjection){
+        Matrix.multiplyMM(modelView, 0, modelView, 0, model, 0);
+        Matrix.multiplyMM(modelViewProjection, 0, perspective, 0, modelView, 0);
 
-        checkGLError("Cube program");
+        GLES20.glUseProgram(program);
 
-        cubePositionParam = GLES20.glGetAttribLocation(cubeProgram, "a_Position");
-        cubeNormalParam = GLES20.glGetAttribLocation(cubeProgram, "a_Normal");
-        cubeColorParam = GLES20.glGetAttribLocation(cubeProgram, "a_Color");
-
-        cubeModelParam = GLES20.glGetUniformLocation(cubeProgram, "u_Model");
-        cubeModelViewParam = GLES20.glGetUniformLocation(cubeProgram, "u_MVMatrix");
-        cubeModelViewProjectionParam = GLES20.glGetUniformLocation(cubeProgram, "u_MVP");
-        cubeLightPosParam = GLES20.glGetUniformLocation(cubeProgram, "u_LightPos");
-    }
-    public voic draw(){
-        GLES20.glUseProgram(cubeProgram);
-
-        GLES20.glUniform3fv(cubeLightPosParam, 1, lightPosInEyeSpace, 0);
+        GLES20.glUniform3fv(lightPosParam, 1, lightPosInEyeSpace, 0);
 
         // Set the Model in the shader, used to calculate lighting
-        GLES20.glUniformMatrix4fv(cubeModelParam, 1, false, modelCube, 0);
+        GLES20.glUniformMatrix4fv(modelParam, 1, false, model, 0);
 
         // Set the ModelView in the shader, used to calculate lighting
-        GLES20.glUniformMatrix4fv(cubeModelViewParam, 1, false, modelView, 0);
+        GLES20.glUniformMatrix4fv(modelViewParam, 1, false, modelView, 0);
 
         // Set the position of the cube
         GLES20.glVertexAttribPointer(
-                cubePositionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT, false, 0, cubeVertices);
+                positionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT, false, 0, fbVertices);
 
         // Set the ModelViewProjection matrix in the shader.
-        GLES20.glUniformMatrix4fv(cubeModelViewProjectionParam, 1, false, modelViewProjection, 0);
+        GLES20.glUniformMatrix4fv(modelViewProjectionParam, 1, false, modelViewProjection, 0);
 
         // Set the normal positions of the cube, again for shading
-        GLES20.glVertexAttribPointer(cubeNormalParam, 3, GLES20.GL_FLOAT, false, 0, cubeNormals);
-        GLES20.glVertexAttribPointer(cubeColorParam, 4, GLES20.GL_FLOAT, false, 0,
-                isLookingAtObject() ? cubeFoundColors : cubeColors);
+        GLES20.glVertexAttribPointer(normalParam, 3, GLES20.GL_FLOAT, false, 0, fbNormals);
+        GLES20.glVertexAttribPointer(colorParam, 4, GLES20.GL_FLOAT, false, 0, fbColors);
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
-        checkGLError("Drawing cube");
+
     }
 }

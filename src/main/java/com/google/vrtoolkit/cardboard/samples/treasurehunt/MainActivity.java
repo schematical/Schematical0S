@@ -24,6 +24,7 @@ import com.google.vrtoolkit.cardboard.Viewport;
 import com.google.vrtoolkit.cardboard.audio.CardboardAudioEngine;
 import com.schematical.os.ir.SClusterHelper;
 import com.schematical.os.ir.SClusterResult;
+import com.schematical.os.ir.elements.Workspace;
 
 import android.content.Context;
 import android.hardware.Camera;
@@ -66,7 +67,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private static final float MIN_MODEL_DISTANCE = 3.0f;
   private static final float MAX_MODEL_DISTANCE = 7.0f;
 
-  private static final String SOUND_FILE = "cube_sound.wav";
 
   private final float[] lightPosInEyeSpace = new float[4];
 
@@ -74,21 +74,9 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private FloatBuffer floorColors;
   private FloatBuffer floorNormals;
 
-  private FloatBuffer cubeVertices;
-  private FloatBuffer cubeColors;
-  private FloatBuffer cubeFoundColors;
-  private FloatBuffer cubeNormals;
 
-  private int cubeProgram;
-  private int floorProgram;
 
-  private int cubePositionParam;
-  private int cubeNormalParam;
-  private int cubeColorParam;
-  private int cubeModelParam;
-  private int cubeModelViewParam;
-  private int cubeModelViewProjectionParam;
-  private int cubeLightPosParam;
+
 
   private int floorPositionParam;
   private int floorNormalParam;
@@ -115,9 +103,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
   private Vibrator vibrator;
   private CardboardOverlayView overlayView;
-
+  private Workspace workspace;
   private CardboardAudioEngine cardboardAudioEngine;
   private volatile int soundId = CardboardAudioEngine.INVALID_ID;
+  private int floorProgram;
 
   /**
    * Converts a raw text file, saved as a resource, into an OpenGL ES shader.
@@ -177,7 +166,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     cardboardView.setRenderer(this);
     setCardboardView(cardboardView);
 
-    modelCube = new float[16];
+
     camera = new float[16];
     view = new float[16];
     modelViewProjection = new float[16];
@@ -232,30 +221,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     Log.i(TAG, "onSurfaceCreated");
     GLES20.glClearColor(0.1f, 0.1f, 0.1f, 0.5f); // Dark background so text shows up well.
 
-    ByteBuffer bbVertices = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COORDS.length * 4);
-    bbVertices.order(ByteOrder.nativeOrder());
-    cubeVertices = bbVertices.asFloatBuffer();
-    cubeVertices.put(WorldLayoutData.CUBE_COORDS);
-    cubeVertices.position(0);
 
-    ByteBuffer bbColors = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_COLORS.length * 4);
-    bbColors.order(ByteOrder.nativeOrder());
-    cubeColors = bbColors.asFloatBuffer();
-    cubeColors.put(WorldLayoutData.CUBE_COLORS);
-    cubeColors.position(0);
 
-    ByteBuffer bbFoundColors =
-        ByteBuffer.allocateDirect(WorldLayoutData.CUBE_FOUND_COLORS.length * 4);
-    bbFoundColors.order(ByteOrder.nativeOrder());
-    cubeFoundColors = bbFoundColors.asFloatBuffer();
-    cubeFoundColors.put(WorldLayoutData.CUBE_FOUND_COLORS);
-    cubeFoundColors.position(0);
-
-    ByteBuffer bbNormals = ByteBuffer.allocateDirect(WorldLayoutData.CUBE_NORMALS.length * 4);
-    bbNormals.order(ByteOrder.nativeOrder());
-    cubeNormals = bbNormals.asFloatBuffer();
-    cubeNormals.put(WorldLayoutData.CUBE_NORMALS);
-    cubeNormals.position(0);
 
     // make a floor
     ByteBuffer bbFloorVertices = ByteBuffer.allocateDirect(WorldLayoutData.FLOOR_COORDS.length * 4);
@@ -276,29 +243,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     floorColors.put(WorldLayoutData.FLOOR_COLORS);
     floorColors.position(0);
 
+    int vertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.light_vertex);
     int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
+    int passthroughShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.passthrough_fragment);
 
+    workspace = new Workspace(getCardboardView(), vertexShader, gridShader);
 
-    cubeProgram = GLES20.glCreateProgram();
-    GLES20.glAttachShader(cubeProgram, vertexShader);
-    GLES20.glAttachShader(cubeProgram, passthroughShader);
-    GLES20.glLinkProgram(cubeProgram);
-    GLES20.glUseProgram(cubeProgram);
-
-    checkGLError("Cube program");
-
-    cubePositionParam = GLES20.glGetAttribLocation(cubeProgram, "a_Position");
-    cubeNormalParam = GLES20.glGetAttribLocation(cubeProgram, "a_Normal");
-    cubeColorParam = GLES20.glGetAttribLocation(cubeProgram, "a_Color");
-
-    cubeModelParam = GLES20.glGetUniformLocation(cubeProgram, "u_Model");
-    cubeModelViewParam = GLES20.glGetUniformLocation(cubeProgram, "u_MVMatrix");
-    cubeModelViewProjectionParam = GLES20.glGetUniformLocation(cubeProgram, "u_MVP");
-    cubeLightPosParam = GLES20.glGetUniformLocation(cubeProgram, "u_LightPos");
-
-    GLES20.glEnableVertexAttribArray(cubePositionParam);
-    GLES20.glEnableVertexAttribArray(cubeNormalParam);
-    GLES20.glEnableVertexAttribArray(cubeColorParam);
 
     checkGLError("Cube program params");
 
@@ -328,21 +278,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     Matrix.setIdentityM(modelFloor, 0);
     Matrix.translateM(modelFloor, 0, 0, -floorDepth, 0); // Floor appears below user.
 
-    // Avoid any delays during start-up due to decoding of sound files.
-/*    new Thread(
-            new Runnable() {
-              public void run() {
-                // Start spatial audio playback of SOUND_FILE at the model postion. The returned
-                //soundId handle is stored and allows for repositioning the sound object whenever
-                // the cube position changes.
-                cardboardAudioEngine.preloadSoundFile(SOUND_FILE);
-                soundId = cardboardAudioEngine.createSoundObject(SOUND_FILE);
-                cardboardAudioEngine.setSoundObjectPosition(
-                    soundId, modelPosition[0], modelPosition[1], modelPosition[2]);
-                cardboardAudioEngine.playSound(soundId, true *//* looped playback *//*);
-              }
-            })
-        .start();*/
 
     updateModelPosition();
 
@@ -355,8 +290,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
   private void updateModelPosition() {
     Matrix.setIdentityM(modelCube, 0);
     Matrix.translateM(modelCube, 0, modelPosition[0], modelPosition[1], modelPosition[2]);
-
-    // Update the sound location to match it with the new cube position.
 
     checkGLError("updateCubePosition");
   }
@@ -402,7 +335,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     // Update the 3d audio engine with the most recent head rotation.
     headTransform.getQuaternion(headRotation, 0);
     cardboardAudioEngine.setHeadRotation(
-        headRotation[0], headRotation[1], headRotation[2], headRotation[3]);
+            headRotation[0], headRotation[1], headRotation[2], headRotation[3]);
 
     checkGLError("onReadyToDraw");
   }
@@ -428,10 +361,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     // Build the ModelView and ModelViewProjection matrices
     // for calculating cube position and light.
     float[] perspective = eye.getPerspective(Z_NEAR, Z_FAR);
-    Matrix.multiplyMM(modelView, 0, view, 0, modelCube, 0);
-    Matrix.multiplyMM(modelViewProjection, 0, perspective, 0, modelView, 0);
-    drawCube();
 
+    workspace.draw(perspective, modelView, modelViewProjection);
     // Set modelView for the floor, so we draw floor in the correct location
     Matrix.multiplyMM(modelView, 0, view, 0, modelFloor, 0);
     Matrix.multiplyMM(modelViewProjection, 0, perspective, 0, modelView, 0);
@@ -446,32 +377,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
    *
    * <p>We've set all of our transformation matrices. Now we simply pass them into the shader.
    */
-  public void drawCube() {
-    GLES20.glUseProgram(cubeProgram);
 
-    GLES20.glUniform3fv(cubeLightPosParam, 1, lightPosInEyeSpace, 0);
-
-    // Set the Model in the shader, used to calculate lighting
-    GLES20.glUniformMatrix4fv(cubeModelParam, 1, false, modelCube, 0);
-
-    // Set the ModelView in the shader, used to calculate lighting
-    GLES20.glUniformMatrix4fv(cubeModelViewParam, 1, false, modelView, 0);
-
-    // Set the position of the cube
-    GLES20.glVertexAttribPointer(
-        cubePositionParam, COORDS_PER_VERTEX, GLES20.GL_FLOAT, false, 0, cubeVertices);
-
-    // Set the ModelViewProjection matrix in the shader.
-    GLES20.glUniformMatrix4fv(cubeModelViewProjectionParam, 1, false, modelViewProjection, 0);
-
-    // Set the normal positions of the cube, again for shading
-    GLES20.glVertexAttribPointer(cubeNormalParam, 3, GLES20.GL_FLOAT, false, 0, cubeNormals);
-    GLES20.glVertexAttribPointer(cubeColorParam, 4, GLES20.GL_FLOAT, false, 0,
-        isLookingAtObject() ? cubeFoundColors : cubeColors);
-
-    GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
-    checkGLError("Drawing cube");
-  }
 
   /**
    * Draw the floor.
